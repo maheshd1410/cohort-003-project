@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Link, useFetcher } from "react-router";
+import { Link, useFetcher, useBlocker } from "react-router";
 import { toast } from "sonner";
 import type { Route } from "./+types/instructor.$courseId.lessons.$lessonId";
 import { getCourseById } from "~/services/courseService";
@@ -155,6 +155,17 @@ export default function InstructorLessonEditor({
     videoUrl !== (lesson.videoUrl ?? "") ||
     durationMinutes !== (lesson.durationMinutes?.toString() ?? "");
 
+  const blocker = useBlocker(hasChanges);
+
+  useEffect(() => {
+    if (!hasChanges) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [hasChanges]);
+
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data?.success) {
       toast.success("Lesson saved.");
@@ -175,6 +186,32 @@ export default function InstructorLessonEditor({
 
   return (
     <div className="p-6 lg:p-8">
+      {/* Unsaved changes blocker dialog */}
+      {blocker.state === "blocked" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="mx-4 w-full max-w-md">
+            <CardHeader>
+              <h2 className="text-lg font-semibold">Unsaved Changes</h2>
+              <p className="text-sm text-muted-foreground">
+                You have unsaved changes that will be lost if you leave this
+                page.
+              </p>
+            </CardHeader>
+            <CardContent className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => blocker.reset()}>
+                Stay on Page
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => blocker.proceed()}
+              >
+                Leave Page
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Breadcrumb */}
       <nav className="mb-6 text-sm text-muted-foreground">
         <Link to="/instructor" className="hover:text-foreground">
