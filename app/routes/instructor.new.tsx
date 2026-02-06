@@ -1,0 +1,242 @@
+import { useState } from "react";
+import { Link, redirect, useFetcher } from "react-router";
+import type { Route } from "./+types/instructor.new";
+import { createCourse, generateSlug, getAllCategories, getCourseBySlug } from "~/services/courseService";
+import { getCurrentUserId } from "~/lib/session";
+import { getUserById } from "~/services/userService";
+import { UserRole } from "~/db/schema";
+import { Card, CardContent, CardHeader } from "~/components/ui/card";
+import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
+import { Label } from "~/components/ui/label";
+import { Textarea } from "~/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
+import { ArrowLeft } from "lucide-react";
+import { data } from "react-router";
+
+export function meta() {
+  return [
+    { title: "New Course — Ralph" },
+    { name: "description", content: "Create a new course" },
+  ];
+}
+
+export async function loader({ request }: Route.LoaderArgs) {
+  const currentUserId = await getCurrentUserId(request);
+
+  if (!currentUserId) {
+    throw data("Select a user from the DevUI panel to create a course.", {
+      status: 401,
+    });
+  }
+
+  const user = getUserById(currentUserId);
+
+  if (!user || user.role !== UserRole.Instructor) {
+    throw data("Only instructors can create courses.", {
+      status: 403,
+    });
+  }
+
+  const categories = getAllCategories();
+
+  return { categories };
+}
+
+export async function action({ request }: Route.ActionArgs) {
+  const currentUserId = await getCurrentUserId(request);
+
+  if (!currentUserId) {
+    throw data("You must be logged in to create a course.", { status: 401 });
+  }
+
+  const user = getUserById(currentUserId);
+
+  if (!user || user.role !== UserRole.Instructor) {
+    throw data("Only instructors can create courses.", { status: 403 });
+  }
+
+  const formData = await request.formData();
+  const title = formData.get("title") as string;
+  const description = formData.get("description") as string;
+  const categoryId = formData.get("categoryId") as string;
+  const coverImageUrl = (formData.get("coverImageUrl") as string) || null;
+
+  const errors: Record<string, string> = {};
+
+  if (!title || title.trim().length === 0) {
+    errors.title = "Title is required.";
+  }
+
+  if (!description || description.trim().length === 0) {
+    errors.description = "Description is required.";
+  }
+
+  if (!categoryId) {
+    errors.categoryId = "Category is required.";
+  }
+
+  if (Object.keys(errors).length > 0) {
+    return data({ errors }, { status: 400 });
+  }
+
+  const slug = generateSlug(title.trim());
+
+  const existingCourse = getCourseBySlug(slug);
+  if (existingCourse) {
+    const dupeErrors: Record<string, string> = {
+      title: "A course with a similar title already exists.",
+    };
+    return data({ errors: dupeErrors }, { status: 400 });
+  }
+
+  const course = createCourse(
+    title.trim(),
+    slug,
+    description.trim(),
+    currentUserId,
+    parseInt(categoryId, 10),
+    coverImageUrl?.trim() || null
+  );
+
+  throw redirect(`/courses/${course.slug}`);
+}
+
+export default function InstructorNewCourse({
+  loaderData,
+  actionData,
+}: Route.ComponentProps) {
+  const { categories } = loaderData;
+  const errors = actionData?.errors;
+  const fetcher = useFetcher();
+  const isSubmitting = fetcher.state !== "idle";
+  const [selectedCategory, setSelectedCategory] = useState("");
+
+  return (
+    <div className="p-6 lg:p-8">
+      {/* Breadcrumb */}
+      <nav className="mb-6 text-sm text-muted-foreground">
+        <Link to="/instructor" className="hover:text-foreground">
+          My Courses
+        </Link>
+        <span className="mx-2">/</span>
+        <span className="text-foreground">New Course</span>
+      </nav>
+
+      <div className="mb-8">
+        <Link
+          to="/instructor"
+          className="mb-4 inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="mr-1 size-4" />
+          Back to My Courses
+        </Link>
+        <h1 className="text-3xl font-bold">Create New Course</h1>
+        <p className="mt-1 text-muted-foreground">
+          Fill in the details below to create a new course. It will be saved as a
+          draft.
+        </p>
+      </div>
+
+      <Card className="max-w-2xl">
+        <CardHeader>
+          <h2 className="text-lg font-semibold">Course Details</h2>
+        </CardHeader>
+        <CardContent>
+          <fetcher.Form method="post" className="space-y-6">
+            {/* Title */}
+            <div className="space-y-2">
+              <Label htmlFor="title">Title</Label>
+              <Input
+                id="title"
+                name="title"
+                placeholder="e.g., Introduction to TypeScript"
+                aria-invalid={errors?.title ? true : undefined}
+              />
+              {errors?.title && (
+                <p className="text-sm text-destructive">{errors.title}</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                The URL slug will be auto-generated from the title.
+              </p>
+            </div>
+
+            {/* Description */}
+            <div className="space-y-2">
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                name="description"
+                placeholder="Describe what students will learn in this course..."
+                rows={4}
+                aria-invalid={errors?.description ? true : undefined}
+              />
+              {errors?.description && (
+                <p className="text-sm text-destructive">
+                  {errors.description}
+                </p>
+              )}
+            </div>
+
+            {/* Category */}
+            <div className="space-y-2">
+              <Label htmlFor="categoryId">Category</Label>
+              <input type="hidden" name="categoryId" value={selectedCategory} />
+              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <SelectTrigger className="w-full" aria-invalid={errors?.categoryId ? true : undefined}>
+                  <SelectValue placeholder="Select a category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((cat) => (
+                    <SelectItem key={cat.id} value={String(cat.id)}>
+                      {cat.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {errors?.categoryId && (
+                <p className="text-sm text-destructive">
+                  {errors.categoryId}
+                </p>
+              )}
+            </div>
+
+            {/* Cover Image URL */}
+            <div className="space-y-2">
+              <Label htmlFor="coverImageUrl">
+                Cover Image URL{" "}
+                <span className="font-normal text-muted-foreground">
+                  (optional)
+                </span>
+              </Label>
+              <Input
+                id="coverImageUrl"
+                name="coverImageUrl"
+                type="url"
+                placeholder="https://example.com/image.jpg"
+              />
+            </div>
+
+            {/* Submit */}
+            <div className="flex items-center gap-3">
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "Creating..." : "Create Course"}
+              </Button>
+              <Link to="/instructor">
+                <Button type="button" variant="outline">
+                  Cancel
+                </Button>
+              </Link>
+            </div>
+          </fetcher.Form>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
