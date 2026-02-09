@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Link, useFetcher } from "react-router";
+import { Link, useFetcher, useNavigate } from "react-router";
 import hljs from "highlight.js/lib/common";
 import { toast } from "sonner";
 import type { Route } from "./+types/courses.$slug.lessons.$lessonId";
@@ -308,6 +308,7 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
   const fetcher = useFetcher({ key: `mark-complete-${lesson.id}` });
   const quizFetcher = useFetcher({ key: `quiz-${lesson.id}` });
   const contentRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (contentRef.current) {
@@ -322,9 +323,18 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
   const isMarking =
     fetcher.state !== "idle" && fetcher.formData?.get("intent") === "mark-complete";
 
+  const justCompleted = fetcher.data?.success;
+
   const isCompleted =
     lessonStatus === LessonProgressStatus.Completed ||
-    fetcher.data?.success;
+    justCompleted;
+
+  // Navigate to next lesson after marking complete
+  useEffect(() => {
+    if (justCompleted && nextLesson) {
+      navigate(`/courses/${course.slug}/lessons/${nextLesson.id}`);
+    }
+  }, [justCompleted, nextLesson, course.slug, navigate]);
 
   const quizResult = quizFetcher.data?.quizResult ?? null;
   const isSubmittingQuiz = quizFetcher.state !== "idle";
@@ -407,14 +417,38 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
           />
         )}
 
-        {/* Mark Complete */}
+        {/* Mark Complete / Up Next */}
         {enrolled && currentUserId && (
           <div className="mb-8">
             {isCompleted ? (
-              <div className="flex items-center gap-2 text-green-600">
-                <CheckCircle2 className="size-5" />
-                <span className="font-medium">Lesson completed</span>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 text-green-600">
+                  <CheckCircle2 className="size-5" />
+                  <span className="font-medium">Lesson completed</span>
+                </div>
+                {nextLesson && (
+                  <Link to={`/courses/${course.slug}/lessons/${nextLesson.id}`}>
+                    <Button variant="outline" size="sm">
+                      Up next: {nextLesson.title}
+                      <ChevronRight className="ml-1 size-4" />
+                    </Button>
+                  </Link>
+                )}
               </div>
+            ) : nextLesson ? (
+              <fetcher.Form method="post">
+                <input type="hidden" name="intent" value="mark-complete" />
+                <Button disabled={isMarking}>
+                  {isMarking ? (
+                    "Completing..."
+                  ) : (
+                    <>
+                      Up next: {nextLesson.title}
+                      <ChevronRight className="ml-1 size-4" />
+                    </>
+                  )}
+                </Button>
+              </fetcher.Form>
             ) : (
               <fetcher.Form method="post">
                 <input type="hidden" name="intent" value="mark-complete" />
