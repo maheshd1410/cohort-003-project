@@ -25,7 +25,7 @@ For each target commit below, we apply changes and create a clean commit with th
 - **fold** — cherry-pick a commit and fold in changes from another commit
 - **fork** — cherry-pick from the fork remote
 
-### Target Commits (37 total)
+### Target Commits (38 total)
 
 #### Section 03: Day 1 Fundamentals
 
@@ -65,42 +65,43 @@ For each target commit below, we apply changes and create a clean commit with th
 | 17 | `06.04.01: Add in-app notifications PRD and plan` | direct | `f7a683a` |
 | 18 | `06.04.02: Add in-app enrollment notifications for instructors` | direct | `afc9937` |
 | 19 | `06.05.01: Add Husky pre-commit hooks with lint-staged` | direct | `e608069` |
-| 20 | `06.07.01: Update do-work skill with red-green-refactor and add coupon notifications plan` | squash | `a0b5325` + `b05ab02` |
-| 21 | `06.07.02: Add coupon redemption notifications for team admins` | direct | `a4b3ccb` |
+| 20 | `06.07.01: Add coupon redemption notifications plan` | direct | `b05ab02` |
+| 21 | `06.07.02: Update do-work skill with red-green-refactor` | direct | `a0b5325` |
+| 22 | `06.07.03: Add coupon redemption notifications for team admins` | direct | `a4b3ccb` |
 
 #### Section 07: Day 5 RALPH
 
 | # | Commit Name | Method | Source |
 |---|------------|--------|--------|
-| 22 | `07.03.01: Add admin analytics PRD and plan` | direct | `d589fd0` |
-| 23 | `07.03.02: Admin analytics Phase 1 — summary cards via HITL` | direct | `c897b95` |
-| 24 | `07.05.01: Admin analytics Phase 2 — revenue chart via AFK` | direct | `306c513` |
-| 25 | `07.08.01: Hook up RALPH to GitHub issues` | direct | `45e8f01` |
-| 26 | `07.08.02: Admin analytics Phase 3 — course breakdown table` | fork | `5fbd305` from fork |
-| 27 | `07.08.03: Change admin analytics default period to 12 months` | fork | `777221a` from fork |
-| 28 | `07.09.01: Update PRD and plan skills to use GitHub` | direct | `f8d8719` |
+| 23 | `07.03.01: Add admin analytics PRD and plan` | direct | `d589fd0` |
+| 24 | `07.03.02: Admin analytics Phase 1 — summary cards via HITL` | direct | `c897b95` |
+| 25 | `07.05.01: Admin analytics Phase 2 — revenue chart via AFK` | direct | `306c513` |
+| 26 | `07.08.01: Hook up RALPH to GitHub issues` | direct | `45e8f01` |
+| 27 | `07.08.02: Admin analytics Phase 3 — course breakdown table` | fork | `5fbd305` from fork |
+| 28 | `07.08.03: Change admin analytics default period to 12 months` | fork | `777221a` from fork |
+| 29 | `07.09.01: Update PRD and plan skills to use GitHub` | direct | `f8d8719` |
 
 #### Section 08: Day 6 Human-In-The-Loop Patterns
 
 | # | Commit Name | Method | Source |
 |---|------------|--------|--------|
-| 29 | `08.02.01: Add prd-to-issues skill` | direct | `5527d0b` |
-| 30 | `08.03.01: Add gamification PRD` | direct | `587ba10` |
-| 31 | `08.03.02: Add XP, streaks, quiz XP, and dashboard gamification` | squash | `ebfe6c9` + `7462241` + `54af3a7` + `31f9f1e` |
-| 32 | `08.05.01: Add live-presence-indicator research` | direct | `93b11a2` |
-| 33 | `08.07.01: Add live presence prototype with Ably` | direct | `1be908f` |
-| 34 | `08.09.01: Add improve-codebase-architecture skill` | direct | `a357190` |
-| 35 | `08.10.01: Add module awareness to write-a-prd skill` | direct | `c1295dc` |
+| 30 | `08.02.01: Add prd-to-issues skill` | direct | `5527d0b` |
+| 31 | `08.03.01: Add gamification PRD` | direct | `587ba10` |
+| 32 | `08.03.02: Add XP, streaks, quiz XP, and dashboard gamification` | squash | `ebfe6c9` + `7462241` + `54af3a7` + `31f9f1e` |
+| 33 | `08.05.01: Add live-presence-indicator research` | direct | `93b11a2` |
+| 34 | `08.07.01: Add live presence prototype with Ably` | direct | `1be908f` |
+| 35 | `08.09.01: Add improve-codebase-architecture skill` | direct | `a357190` |
+| 36 | `08.10.01: Add module awareness to write-a-prd skill` | direct | `c1295dc` |
 
 ### Method Details
 
-#### Direct cherry-pick (25 commits)
+#### Direct cherry-pick (27 commits)
 ```bash
 git cherry-pick <sha>
 git commit --amend -m "XX.YY.ZZ: Title"
 ```
 
-#### Squash (2 commits: #20 and #31)
+#### Squash (1 commit: #32)
 ```bash
 git cherry-pick <sha1>
 git cherry-pick <sha2> --no-commit
@@ -137,8 +138,8 @@ The source commits are already in the correct chronological order matching the c
 
 ### Verification
 
-After building all 37 commits:
-1. `git log --oneline course-commits` — verify 37 commits with correct naming
+After building all 38 commits:
+1. `git log --oneline course-commits` — verify 38 commits with correct naming
 2. `git diff course-commits live-run-through` — compare final state (should be identical or very close, except for fork changes that weren't on live-run-through)
 3. Run `pnpm type-check` and `pnpm test` on the final state
 4. Spot-check a few intermediate commits by checking them out and verifying the app runs

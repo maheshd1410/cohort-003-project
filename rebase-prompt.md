@@ -9,7 +9,7 @@ Read both files thoroughly before starting.
 
 ## What You're Doing
 
-You're creating a new branch `course-commits` from `main` with exactly 37 clean commits. Each commit is named `XX.YY.ZZ: Title` corresponding to a lesson in the course. The source commits come from the `live-run-through` branch in this repo, plus 2 commits from a fork at `~/repos/ai/cohort-003-project-fork`.
+You're creating a new branch `course-commits` from `main` with exactly 38 clean commits. Each commit is named `XX.YY.ZZ: Title` corresponding to a lesson in the course. The source commits come from the `live-run-through` branch in this repo, plus 2 commits from a fork at `~/repos/ai/cohort-003-project-fork`.
 
 ## Rules
 
@@ -17,10 +17,10 @@ You're creating a new branch `course-commits` from `main` with exactly 37 clean 
 2. **Follow the commit-mapping.md exactly** for which commits map to which lessons.
 3. **Follow the rebase-plan.md exactly** for the method (direct, squash, split, fold, fork) for each commit.
 4. **Commit messages** must follow the format `XX.YY.ZZ: Title`. You may add a short description body if the original commit had one.
-5. Work through the 37 commits sequentially — don't skip ahead.
+5. Work through the 38 commits sequentially — don't skip ahead.
 6. If a cherry-pick has a conflict, resolve it sensibly and tell me what you did.
-7. After all 37 commits are created, verify by:
-   - Running `git log --oneline course-commits` to confirm all 37 commits exist with correct names
+7. After all 38 commits are created, verify by:
+   - Running `git log --oneline course-commits` to confirm all 38 commits exist with correct names
    - Running `git diff course-commits live-run-through` to compare the final state against the original (differences are expected for fork commits and any reordering of the CLAUDE.md removal)
    - Running `pnpm type-check` and `pnpm test` on the final state to make sure nothing is broken
 
@@ -32,4 +32,4 @@ git fetch fork
 git checkout -b course-commits main
 ```
 
-Then start building commits from #1 (`03.04.01`) through #37 (`08.10.01`).
+Then start building commits from #1 (`03.04.01`) through #38 (`08.10.01`).

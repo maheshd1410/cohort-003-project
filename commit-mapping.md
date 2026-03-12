@@ -94,8 +94,9 @@ No commits. All conceptual/demo lessons.
 - 06.05 Fixing Agents' Broken Formatting With Pre-Commit — `06.05.01: Add Husky pre-commit hooks with lint-staged` ← from `e608069`
 - 06.06 What Is Red-Green-Refactor — no commit
 - 06.07 Red-Green-Refactor:
-  - `06.07.01: Update do-work skill with red-green-refactor and add coupon notifications plan` ← squash `a0b5325` + `b05ab02` (setup)
-  - `06.07.02: Add coupon redemption notifications for team admins` ← from `a4b3ccb` (solution)
+  - `06.07.01: Add coupon redemption notifications plan` ← from `b05ab02` (setup)
+  - `06.07.02: Update do-work skill with red-green-refactor` ← from `a0b5325`
+  - `06.07.03: Add coupon redemption notifications for team admins` ← from `a4b3ccb` (solution)
 
 ## Section 07: Day 5 RALPH
 
