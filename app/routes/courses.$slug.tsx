@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useFetcher, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import type { Route } from "./+types/courses.$slug";
 import {
@@ -14,10 +14,12 @@ import {
   getNextIncompleteLesson,
 } from "~/services/progressService";
 import { getCurrentUserId } from "~/lib/session";
+import { getUserById } from "~/services/userService";
 import { LessonProgressStatus } from "~/db/schema";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
+import { CourseRatingSummary, StarRatingInput } from "~/components/course-rating";
 import {
   Tabs,
   TabsList,
@@ -42,6 +44,18 @@ import { formatDuration, formatPrice } from "~/lib/utils";
 import { renderMarkdown } from "~/lib/markdown.server";
 import { resolveCountry } from "~/lib/country.server";
 import { calculatePppPrice, getCountryTierInfo } from "~/lib/ppp";
+import {
+  getCourseRatingSummary,
+  getUserCourseRating,
+  saveCourseRating,
+} from "~/services/courseRatingService";
+import { parseFormData } from "~/lib/validation";
+import { z } from "zod";
+
+const courseRatingSchema = z.object({
+  intent: z.literal("save-rating"),
+  rating: z.coerce.number().int().min(1).max(5),
+});
 
 export function meta({ data: loaderData }: Route.MetaArgs) {
   const title = loaderData?.course?.title ?? "Course";
@@ -66,6 +80,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 
   const lessonCount = getLessonCountForCourse(course.id);
   const currentUserId = await getCurrentUserId(request);
+  const currentUser = currentUserId ? getUserById(currentUserId) : null;
 
   let enrolled = false;
   let progress = 0;
@@ -101,6 +116,11 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     ? calculatePppPrice(courseWithDetails.price, country)
     : courseWithDetails.price;
   const tierInfo = getCountryTierInfo(country);
+  const ratingSummary = getCourseRatingSummary(course.id);
+  const currentUserRating =
+    currentUserId && enrolled
+      ? getUserCourseRating(currentUserId, course.id)?.rating ?? null
+      : null;
 
   return {
     course: courseWithDetails,
@@ -111,12 +131,49 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     lessonProgressMap,
     nextLessonId,
     currentUserId,
+    currentUserRole: currentUser?.role ?? null,
     pppPrice,
     tierInfo,
+    averageRating: ratingSummary.averageRating,
+    ratingCount: ratingSummary.ratingCount,
+    currentUserRating,
   };
 }
 
-// No action — enrollment is handled via the purchase confirmation page
+export async function action({ params, request }: Route.ActionArgs) {
+  const slug = params.slug;
+  const course = getCourseBySlug(slug);
+
+  if (!course) {
+    throw data("Course not found", { status: 404 });
+  }
+
+  const currentUserId = await getCurrentUserId(request);
+  if (!currentUserId) {
+    throw data("You must be logged in to rate a course.", { status: 401 });
+  }
+
+  if (!isUserEnrolled(currentUserId, course.id)) {
+    throw data("You must be enrolled to rate this course.", { status: 403 });
+  }
+
+  if (course.instructorId === currentUserId) {
+    throw data("You can't rate your own course.", { status: 403 });
+  }
+
+  const formData = await request.formData();
+  const parsed = parseFormData(formData, courseRatingSchema);
+
+  if (!parsed.success) {
+    return data(
+      { error: Object.values(parsed.errors)[0] ?? "Invalid rating." },
+      { status: 400 }
+    );
+  }
+
+  saveCourseRating(currentUserId, course.id, parsed.data.rating);
+  return { success: true };
+}
 
 export function HydrateFallback() {
   return (
@@ -179,11 +236,16 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
     lessonProgressMap,
     nextLessonId,
     currentUserId,
+    currentUserRole,
     pppPrice,
     tierInfo,
+    averageRating,
+    ratingCount,
+    currentUserRating,
   } = loaderData;
   const isInstructor = currentUserId === course.instructorId;
   const [searchParams, setSearchParams] = useSearchParams();
+  const ratingFetcher = useFetcher();
 
   useEffect(() => {
     if (searchParams.get("already_enrolled") === "1") {
@@ -197,6 +259,15 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
       );
     }
   }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (ratingFetcher.state === "idle" && ratingFetcher.data?.success) {
+      toast.success("Your rating has been saved.");
+    }
+    if (ratingFetcher.state === "idle" && ratingFetcher.data?.error) {
+      toast.error(ratingFetcher.data.error);
+    }
+  }, [ratingFetcher.state, ratingFetcher.data]);
 
   const totalDuration = course.modules.reduce(
     (sum, mod) =>
@@ -320,6 +391,11 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
               {formatDuration(totalDuration, true, false, false)} total
             </span>
           )}
+          <CourseRatingSummary
+            averageRating={averageRating}
+            ratingCount={ratingCount}
+            size="md"
+          />
         </div>
       </div>
 
@@ -418,6 +494,10 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
                 enrollButton
               )}
               <div className="space-y-2 pt-2 text-sm text-muted-foreground">
+                <CourseRatingSummary
+                  averageRating={averageRating}
+                  ratingCount={ratingCount}
+                />
                 <div className="flex items-center gap-2">
                   <BookOpen className="size-4" />
                   <span>{lessonCount} lessons</span>
@@ -442,6 +522,28 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
                   </p>
                 )}
               </div>
+              {enrolled && !isInstructor && currentUserRole !== null && (
+                <div className="border-t pt-4">
+                  <p className="mb-2 text-sm font-medium text-foreground">
+                    Rate this course
+                  </p>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Your rating updates the public average immediately.
+                  </p>
+                  <ratingFetcher.Form method="post">
+                    <input type="hidden" name="intent" value="save-rating" />
+                    <StarRatingInput
+                      currentRating={currentUserRating}
+                      disabled={ratingFetcher.state !== "idle"}
+                    />
+                  </ratingFetcher.Form>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {currentUserRating
+                      ? `Your current rating: ${currentUserRating} star${currentUserRating === 1 ? "" : "s"}`
+                      : "You haven’t rated this course yet."}
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

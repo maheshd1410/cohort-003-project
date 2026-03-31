@@ -199,6 +199,23 @@ export const purchases = sqliteTable("purchases", {
     .$defaultFn(() => new Date().toISOString()),
 });
 
+export const courseRatings = sqliteTable("course_ratings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id),
+  courseId: integer("course_id")
+    .notNull()
+    .references(() => courses.id),
+  rating: integer("rating").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
 export const teams = sqliteTable("teams", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   createdAt: text("created_at")

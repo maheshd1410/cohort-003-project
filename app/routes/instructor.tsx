@@ -9,8 +9,10 @@ import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import { AlertTriangle, BookOpen, GraduationCap, Plus, Users } from "lucide-react";
 import { CourseImage } from "~/components/course-image";
+import { CourseRatingSummary } from "~/components/course-rating";
 import { data, isRouteErrorResponse } from "react-router";
 import { CourseStatus, UserRole } from "~/db/schema";
+import { getCourseRatingSummaries } from "~/services/courseRatingService";
 
 export function meta() {
   return [
@@ -37,6 +39,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   const instructorCourses = getCoursesByInstructor(currentUserId);
+  const ratingSummaries = getCourseRatingSummaries(
+    instructorCourses.map((course) => course.id)
+  );
 
   const coursesWithStats = instructorCourses.map((course) => {
     const lessonCount = getLessonCountForCourse(course.id);
@@ -51,6 +56,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       coverImageUrl: course.coverImageUrl,
       lessonCount,
       enrollmentCount,
+      averageRating: ratingSummaries.get(course.id)?.averageRating ?? null,
+      ratingCount: ratingSummaries.get(course.id)?.ratingCount ?? 0,
       createdAt: course.createdAt,
       updatedAt: course.updatedAt,
     };
@@ -184,6 +191,10 @@ export default function InstructorDashboard({
                   </Link>
                   {statusBadge(course.status)}
                 </div>
+                <CourseRatingSummary
+                  averageRating={course.averageRating}
+                  ratingCount={course.ratingCount}
+                />
                 <p className="line-clamp-2 text-sm text-muted-foreground">
                   {course.description}
                 </p>

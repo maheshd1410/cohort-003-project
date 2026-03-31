@@ -8,7 +8,9 @@ import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import { AlertTriangle, BookOpen, CheckCircle2, GraduationCap, PlayCircle } from "lucide-react";
 import { CourseImage } from "~/components/course-image";
+import { CourseRatingSummary } from "~/components/course-rating";
 import { data, isRouteErrorResponse } from "react-router";
+import { getCourseRatingSummaries } from "~/services/courseRatingService";
 
 export function meta() {
   return [
@@ -27,6 +29,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   const enrolledCourses = getUserEnrolledCourses(currentUserId);
+  const ratingSummaries = getCourseRatingSummaries(
+    enrolledCourses.map((enrollment) => enrollment.courseId)
+  );
 
   const coursesWithProgress = enrolledCourses.map((enrollment) => {
     const progress = calculateProgress(
@@ -53,6 +58,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       totalLessons,
       nextLessonId: nextLesson?.id ?? null,
       isCompleted,
+      averageRating: ratingSummaries.get(enrollment.courseId)?.averageRating ?? null,
+      ratingCount: ratingSummaries.get(enrollment.courseId)?.ratingCount ?? 0,
     };
   });
 
@@ -157,6 +164,10 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
                       >
                         {course.courseTitle}
                       </Link>
+                      <CourseRatingSummary
+                        averageRating={course.averageRating}
+                        ratingCount={course.ratingCount}
+                      />
                       <p className="line-clamp-2 text-sm text-muted-foreground">
                         {course.courseDescription}
                       </p>
@@ -229,6 +240,10 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
                       >
                         {course.courseTitle}
                       </Link>
+                      <CourseRatingSummary
+                        averageRating={course.averageRating}
+                        ratingCount={course.ratingCount}
+                      />
                       <p className="line-clamp-2 text-sm text-muted-foreground">
                         {course.courseDescription}
                       </p>
