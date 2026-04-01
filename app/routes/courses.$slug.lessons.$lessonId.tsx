@@ -10,6 +10,7 @@ import { getLessonById } from "~/services/lessonService";
 import { getModuleById } from "~/services/moduleService";
 import { getCurrentUserId } from "~/lib/session";
 import { isUserEnrolled } from "~/services/enrollmentService";
+import { getUserById } from "~/services/userService";
 import {
   getLessonProgress,
   getLessonProgressForCourse,
@@ -26,9 +27,10 @@ import {
   getBestAttempt,
 } from "~/services/quizService";
 import { computeResult } from "~/services/quizScoringService";
-import { LessonProgressStatus } from "~/db/schema";
+import { LessonProgressStatus, UserRole } from "~/db/schema";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
+import { Textarea } from "~/components/ui/textarea";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -55,6 +57,11 @@ import { resolveCountry } from "~/lib/country.server";
 import { checkPppAccess, COUNTRIES } from "~/lib/ppp";
 import { findPurchase } from "~/services/purchaseService";
 import { parseFormData, parseParams } from "~/lib/validation";
+import {
+  createLessonComment,
+  getVisibleCommentsForLesson,
+} from "~/services/lessonCommentService";
+import { UserAvatar } from "~/components/user-avatar";
 
 const lessonParamsSchema = z.object({
   slug: z.string().min(1),
@@ -63,6 +70,11 @@ const lessonParamsSchema = z.object({
 
 const markCompleteSchema = z.object({
   intent: z.literal("mark-complete"),
+});
+
+const addCommentSchema = z.object({
+  intent: z.literal("add-comment"),
+  body: z.string().trim().min(1, "Comment cannot be empty.").max(1000, "Comment must be 1000 characters or less."),
 });
 
 export function meta({ data: loaderData }: Route.MetaArgs) {
@@ -133,6 +145,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   }
 
   const currentUserId = await getCurrentUserId(request);
+  const currentUser = currentUserId ? getUserById(currentUserId) : null;
   let enrolled = false;
   let lessonStatus: string | null = null;
   let lastWatchPosition = 0;
@@ -171,6 +184,8 @@ export async function loader({ params, request }: Route.LoaderArgs) {
       }
     }
   }
+
+  const comments = getVisibleCommentsForLesson(lessonId);
 
   // PPP Access Guard
   let pppBlocked = false;
@@ -275,12 +290,14 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     nextLesson,
     quiz,
     bestAttempt,
+    comments,
     lastWatchPosition,
     watchProgress,
     lessonProgressMap,
     pppBlocked,
     pppBlockedCountry,
     pppPurchaseCountry,
+    currentUserRole: currentUser?.role ?? null,
   };
 }
 
@@ -292,20 +309,67 @@ export async function action({ params, request }: Route.ActionArgs) {
     throw data("Course not found", { status: 404 });
   }
 
+  const lesson = getLessonById(lessonId);
+  if (!lesson) {
+    throw data("Lesson not found", { status: 404 });
+  }
+
+  const mod = getModuleById(lesson.moduleId);
+  if (!mod || mod.courseId !== course.id) {
+    throw data("Lesson not found in this course", { status: 404 });
+  }
+
   const currentUserId = await getCurrentUserId(request);
   if (!currentUserId) {
     throw data("You must be logged in", { status: 401 });
   }
 
+  const currentUser = getUserById(currentUserId);
+  if (!currentUser) {
+    throw data("User not found", { status: 404 });
+  }
+
+  const enrolled = isUserEnrolled(currentUserId, course.id);
+
   const formData = await request.formData();
   const intent = formData.get("intent");
 
   if (intent === "mark-complete") {
+    if (!enrolled) {
+      throw data("Only enrolled students can update lesson progress.", {
+        status: 403,
+      });
+    }
     markLessonComplete(currentUserId, lessonId);
     return { success: true };
   }
 
+  if (intent === "add-comment") {
+    if (!enrolled || currentUser.role !== UserRole.Student) {
+      return data(
+        { error: "Only enrolled students can comment on lessons." },
+        { status: 403 }
+      );
+    }
+
+    const parsed = parseFormData(formData, addCommentSchema);
+    if (!parsed.success) {
+      return data(
+        { error: Object.values(parsed.errors)[0] ?? "Invalid comment." },
+        { status: 400 }
+      );
+    }
+
+    createLessonComment(lessonId, currentUserId, parsed.data.body);
+    return { success: true, field: "comment" };
+  }
+
   if (intent === "submit-quiz") {
+    if (!enrolled) {
+      throw data("Only enrolled students can submit quizzes.", {
+        status: 403,
+      });
+    }
     const quizId = Number(formData.get("quizId"));
     if (isNaN(quizId)) {
       throw data("Invalid quiz ID", { status: 400 });
@@ -376,17 +440,23 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
     nextLesson,
     quiz,
     bestAttempt,
+    comments,
     lastWatchPosition,
     watchProgress,
     lessonProgressMap,
     pppBlocked,
     pppBlockedCountry,
     pppPurchaseCountry,
+    currentUserRole,
   } = loaderData;
   const [autoplay, toggleAutoplay] = useAutoplay();
   const fetcher = useFetcher({ key: `mark-complete-${lesson.id}` });
   const quizFetcher = useFetcher({ key: `quiz-${lesson.id}` });
+  const commentFetcher = useFetcher<{ success?: boolean; error?: string; field?: string }>({
+    key: `comment-${lesson.id}`,
+  });
   const navigate = useNavigate();
+  const [commentBody, setCommentBody] = useState("");
 
   const isMarking =
     fetcher.state !== "idle" &&
@@ -406,6 +476,16 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
 
   const quizResult = quizFetcher.data?.quizResult ?? null;
   const isSubmittingQuiz = quizFetcher.state !== "idle";
+
+  useEffect(() => {
+    if (commentFetcher.state === "idle" && commentFetcher.data?.success) {
+      toast.success("Comment posted.");
+      setCommentBody("");
+    }
+    if (commentFetcher.state === "idle" && commentFetcher.data?.error) {
+      toast.error(commentFetcher.data.error);
+    }
+  }, [commentFetcher.state, commentFetcher.data]);
 
   if (pppBlocked) {
     const purchaseCountryName = pppPurchaseCountry
@@ -535,6 +615,15 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
             </Card>
           )}
 
+          <LessonCommentsSection
+            lessonId={lesson.id}
+            comments={comments}
+            canComment={enrolled && currentUserId !== null && currentUserRole === UserRole.Student}
+            commentFetcher={commentFetcher}
+            commentBody={commentBody}
+            onCommentBodyChange={setCommentBody}
+          />
+
           {/* Quiz Section */}
           {quiz && enrolled && currentUserId && (
             <QuizSection
@@ -642,6 +731,106 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
         </div>
       </div>
     </div>
+  );
+}
+
+function LessonCommentsSection({
+  lessonId,
+  comments,
+  canComment,
+  commentFetcher,
+  commentBody,
+  onCommentBodyChange,
+}: {
+  lessonId: number;
+  comments: Array<{
+    id: number;
+    userId: number;
+    body: string;
+    createdAt: string;
+    authorName: string;
+    authorAvatarUrl: string | null;
+  }>;
+  canComment: boolean;
+  commentFetcher: ReturnType<typeof useFetcher<{ success?: boolean; error?: string }>>;
+  commentBody: string;
+  onCommentBodyChange: (value: string) => void;
+}) {
+  const isSubmittingComment =
+    commentFetcher.state !== "idle" &&
+    commentFetcher.formData?.get("intent") === "add-comment";
+
+  return (
+    <Card className="mb-8">
+      <CardContent className="p-6">
+        <div className="mb-6 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold">Discussion</h2>
+            <p className="text-sm text-muted-foreground">
+              Students can ask questions and instructors can moderate replies.
+            </p>
+          </div>
+          <span className="text-sm text-muted-foreground">
+            {comments.length} {comments.length === 1 ? "comment" : "comments"}
+          </span>
+        </div>
+
+        {canComment ? (
+          <commentFetcher.Form method="post" className="mb-6 space-y-3">
+            <input type="hidden" name="intent" value="add-comment" />
+            <input type="hidden" name="lessonId" value={lessonId} />
+            <Textarea
+              name="body"
+              value={commentBody}
+              onChange={(e) => onCommentBodyChange(e.target.value)}
+              placeholder="Add a question, note, or clarification for this lesson..."
+              maxLength={1000}
+              rows={4}
+            />
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-muted-foreground">
+                {commentBody.length}/1000
+              </span>
+              <Button type="submit" disabled={isSubmittingComment || commentBody.trim().length === 0}>
+                {isSubmittingComment ? "Posting..." : "Post Comment"}
+              </Button>
+            </div>
+          </commentFetcher.Form>
+        ) : (
+          <div className="mb-6 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+            Enroll in the course as a student to join the discussion.
+          </div>
+        )}
+
+        {comments.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            No comments yet.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {comments.map((comment) => (
+              <div key={comment.id} className="rounded-lg border p-4">
+                <div className="mb-3 flex items-center gap-3">
+                  <UserAvatar
+                    name={comment.authorName}
+                    avatarUrl={comment.authorAvatarUrl}
+                  />
+                  <div>
+                    <div className="font-medium">{comment.authorName}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {new Date(comment.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+                <p className="whitespace-pre-wrap text-sm leading-6 text-foreground/90">
+                  {comment.body}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

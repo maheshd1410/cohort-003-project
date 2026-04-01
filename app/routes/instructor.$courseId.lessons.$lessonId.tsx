@@ -8,16 +8,23 @@ import { getModuleById } from "~/services/moduleService";
 import { getQuizByLessonId } from "~/services/quizService";
 import { getCurrentUserId } from "~/lib/session";
 import { getUserById } from "~/services/userService";
-import { UserRole } from "~/db/schema";
+import { LessonCommentStatus, UserRole } from "~/db/schema";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { MonacoMarkdownEditor } from "~/components/monaco-markdown-editor";
-import { AlertTriangle, ArrowLeft, ClipboardList, ExternalLink, Github, Save } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ClipboardList, ExternalLink, Eye, EyeOff, Github, Save, Trash2 } from "lucide-react";
 import { data, isRouteErrorResponse } from "react-router";
 import { z } from "zod";
 import { parseFormData, parseParams } from "~/lib/validation";
+import {
+  deleteLessonComment,
+  getCommentsForLessonModeration,
+  getLessonCommentById,
+  updateLessonCommentStatus,
+} from "~/services/lessonCommentService";
+import { UserAvatar } from "~/components/user-avatar";
 
 const instructorLessonParamsSchema = z.object({
   courseId: z.coerce.number().int(),
@@ -31,6 +38,21 @@ const updateLessonSchema = z.object({
   durationMinutes: z.string().optional(),
   githubRepoUrl: z.string().trim().optional(),
 });
+
+const moderateCommentSchema = z.union([
+  z.object({
+    intent: z.literal("hide-comment"),
+    commentId: z.coerce.number().int(),
+  }),
+  z.object({
+    intent: z.literal("show-comment"),
+    commentId: z.coerce.number().int(),
+  }),
+  z.object({
+    intent: z.literal("delete-comment"),
+    commentId: z.coerce.number().int(),
+  }),
+]);
 
 export function meta({ data: loaderData }: Route.MetaArgs) {
   const title = loaderData?.lesson?.title ?? "Edit Lesson";
@@ -88,8 +110,9 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   }
 
   const quiz = getQuizByLessonId(lessonId);
+  const comments = getCommentsForLessonModeration(lessonId);
 
-  return { course, lesson, module: mod, quiz };
+  return { course, lesson, module: mod, quiz, comments };
 }
 
 export async function action({ params, request }: Route.ActionArgs) {
@@ -126,13 +149,15 @@ export async function action({ params, request }: Route.ActionArgs) {
   }
 
   const formData = await request.formData();
-  const parsed = parseFormData(formData, updateLessonSchema);
+  const intent = formData.get("intent");
 
-  if (!parsed.success) {
-    return data({ error: Object.values(parsed.errors)[0] ?? "Invalid input." }, { status: 400 });
-  }
+  if (intent === "update-lesson") {
+    const parsed = parseFormData(formData, updateLessonSchema);
 
-  if (parsed.data.intent === "update-lesson") {
+    if (!parsed.success) {
+      return data({ error: Object.values(parsed.errors)[0] ?? "Invalid input." }, { status: 400 });
+    }
+
     const { content, videoUrl, durationMinutes: durationStr, githubRepoUrl } = parsed.data;
     const durationMinutes = durationStr ? parseInt(durationStr, 10) : null;
 
@@ -144,14 +169,46 @@ export async function action({ params, request }: Route.ActionArgs) {
     return { success: true };
   }
 
+  const moderationParsed = parseFormData(formData, moderateCommentSchema);
+  if (moderationParsed.success) {
+    const comment = getLessonCommentById(moderationParsed.data.commentId);
+    if (!comment || comment.lessonId !== lessonId) {
+      return data({ error: "Comment not found for this lesson." }, { status: 404 });
+    }
+
+    if (moderationParsed.data.intent === "hide-comment") {
+      updateLessonCommentStatus(
+        comment.id,
+        LessonCommentStatus.Hidden,
+        currentUserId
+      );
+      return { success: true, field: "comment", action: "hidden" };
+    }
+
+    if (moderationParsed.data.intent === "show-comment") {
+      updateLessonCommentStatus(
+        comment.id,
+        LessonCommentStatus.Visible,
+        currentUserId
+      );
+      return { success: true, field: "comment", action: "shown" };
+    }
+
+    if (moderationParsed.data.intent === "delete-comment") {
+      deleteLessonComment(comment.id);
+      return { success: true, field: "comment", action: "deleted" };
+    }
+  }
+
   throw data("Invalid action.", { status: 400 });
 }
 
 export default function InstructorLessonEditor({
   loaderData,
 }: Route.ComponentProps) {
-  const { course, lesson, module: mod, quiz } = loaderData;
+  const { course, lesson, module: mod, quiz, comments } = loaderData;
   const fetcher = useFetcher();
+  const moderationFetcher = useFetcher<{ success?: boolean; error?: string; field?: string; action?: string }>();
 
   const [content, setContent] = useState(lesson.content ?? "");
   const [videoUrl, setVideoUrl] = useState(lesson.videoUrl ?? "");
@@ -187,6 +244,16 @@ export default function InstructorLessonEditor({
       toast.error(fetcher.data.error);
     }
   }, [fetcher.state, fetcher.data]);
+
+  useEffect(() => {
+    if (moderationFetcher.state === "idle" && moderationFetcher.data?.success) {
+      const action = moderationFetcher.data.action ?? "updated";
+      toast.success(`Comment ${action}.`);
+    }
+    if (moderationFetcher.state === "idle" && moderationFetcher.data?.error) {
+      toast.error(moderationFetcher.data.error);
+    }
+  }, [moderationFetcher.state, moderationFetcher.data]);
 
   function handleSave() {
     fetcher.submit(
@@ -373,6 +440,96 @@ export default function InstructorLessonEditor({
                 {quiz ? "Edit Quiz" : "Create Quiz"}
               </Button>
             </Link>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <h2 className="text-lg font-semibold">Comment Moderation</h2>
+            <p className="text-sm text-muted-foreground">
+              Review student discussion for this lesson and hide or remove comments when needed.
+            </p>
+          </CardHeader>
+          <CardContent>
+            {comments.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                No comments on this lesson yet.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {comments.map((comment) => {
+                  const isHidden = comment.status === LessonCommentStatus.Hidden;
+                  return (
+                    <div key={comment.id} className="rounded-lg border p-4">
+                      <div className="mb-3 flex items-start justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <UserAvatar
+                            name={comment.authorName}
+                            avatarUrl={comment.authorAvatarUrl}
+                          />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{comment.authorName}</span>
+                              <span
+                                className={
+                                  isHidden
+                                    ? "rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
+                                    : "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800"
+                                }
+                              >
+                                {isHidden ? "Hidden" : "Visible"}
+                              </span>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Posted {new Date(comment.createdAt).toLocaleString()}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <moderationFetcher.Form method="post">
+                            <input
+                              type="hidden"
+                              name="intent"
+                              value={isHidden ? "show-comment" : "hide-comment"}
+                            />
+                            <input type="hidden" name="commentId" value={comment.id} />
+                            <Button type="submit" variant="outline" size="sm">
+                              {isHidden ? (
+                                <>
+                                  <Eye className="mr-1.5 size-4" />
+                                  Show
+                                </>
+                              ) : (
+                                <>
+                                  <EyeOff className="mr-1.5 size-4" />
+                                  Hide
+                                </>
+                              )}
+                            </Button>
+                          </moderationFetcher.Form>
+                          <moderationFetcher.Form method="post">
+                            <input type="hidden" name="intent" value="delete-comment" />
+                            <input type="hidden" name="commentId" value={comment.id} />
+                            <Button type="submit" variant="outline" size="sm">
+                              <Trash2 className="mr-1.5 size-4" />
+                              Delete
+                            </Button>
+                          </moderationFetcher.Form>
+                        </div>
+                      </div>
+                      <p className="whitespace-pre-wrap text-sm leading-6 text-foreground/90">
+                        {comment.body}
+                      </p>
+                      {comment.moderatedAt && (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          Moderated {new Date(comment.moderatedAt).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
 

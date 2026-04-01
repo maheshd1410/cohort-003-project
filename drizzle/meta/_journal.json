@@ -29,6 +29,13 @@
       "when": 1772253000000,
       "tag": "0003_mellow_blossom",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1774932000000,
+      "tag": "0004_lesson_comments",
+      "breakpoints": true
     }
   ]
 }

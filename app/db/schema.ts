@@ -23,6 +23,11 @@ export enum QuestionType {
   TrueFalse = "true_false",
 }
 
+export enum LessonCommentStatus {
+  Visible = "visible",
+  Hidden = "hidden",
+}
+
 export enum TeamMemberRole {
   Admin = "admin",
   Member = "member",
@@ -126,6 +131,29 @@ export const lessonProgress = sqliteTable("lesson_progress", {
     .references(() => lessons.id),
   status: text("status").notNull().$type<LessonProgressStatus>(),
   completedAt: text("completed_at"),
+});
+
+export const lessonComments = sqliteTable("lesson_comments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  lessonId: integer("lesson_id")
+    .notNull()
+    .references(() => lessons.id),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id),
+  body: text("body").notNull(),
+  status: text("status")
+    .notNull()
+    .$type<LessonCommentStatus>()
+    .default(LessonCommentStatus.Visible),
+  moderatedByUserId: integer("moderated_by_user_id").references(() => users.id),
+  moderatedAt: text("moderated_at"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
 });
 
 export const quizzes = sqliteTable("quizzes", {
